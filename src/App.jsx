@@ -16,11 +16,11 @@ function App() {
   return (
     <div className="min-h-screen bg-white">
       <Navbar />
-      <Hero />
-      <Features />
+      {/* <Hero /> */}
+      {/* <Features /> */}
       <AudioRecorder onSaveLecture={handleSaveLecture} />
       <LectureList savedLectures={savedLectures} />
-      <Footer />
+      {/* <Footer /> */}
     </div>
   );
 }
