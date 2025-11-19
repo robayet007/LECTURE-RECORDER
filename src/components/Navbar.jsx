@@ -1,56 +1,74 @@
 import React, { useState } from 'react';
+import { X } from 'lucide-react';
 
 const Navbar = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
-    <nav className="bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-gray-200/60">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center py-4">
+    <nav className="sticky top-0 z-50 border-b bg-white/70 backdrop-blur-2xl border-gray-200/30">
+      <div className="px-6 mx-auto max-w-7xl sm:px-8 lg:px-12">
+        <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
-              <span className="text-white font-bold text-lg">IA</span>
+          <div className="flex items-center space-x-2">
+            <div className="flex items-center justify-center bg-black rounded-lg w-9 h-9">
+              <span className="text-base font-semibold text-white">IL</span>
             </div>
-            <div>
-              <span className="text-2xl font-bold text-gray-900 bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
-                IELTS.AI
-              </span>
-              <div className="h-1 w-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mt-1"></div>
-            </div>
+            <span className="text-xl font-semibold tracking-tight text-gray-900">
+              IELTS Lectures
+            </span>
           </div>
 
           {/* Desktop Menu */}
-          <div className="hidden md:flex items-center space-x-10">
-            <a href="#features" className="text-gray-600 hover:text-gray-900 transition-colors duration-300 font-medium text-lg">Features</a>
-            <a href="#record" className="text-gray-600 hover:text-gray-900 transition-colors duration-300 font-medium text-lg">Record</a>
-            <a href="#lectures" className="text-gray-600 hover:text-gray-900 transition-colors duration-300 font-medium text-lg">Lectures</a>
-            <button className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-8 py-3 rounded-2xl text-lg font-semibold hover:shadow-xl transition-all duration-300 transform hover:scale-105 active:scale-95 shadow-lg">
+          <div className="items-center hidden space-x-8 md:flex">
+            <a href="#record" className="text-sm font-normal text-gray-800 transition-colors duration-200 hover:text-gray-600">
+              Record
+            </a>
+            <a href="#lectures" className="text-sm font-normal text-gray-800 transition-colors duration-200 hover:text-gray-600">
+              Lectures
+            </a>
+            <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-full text-sm font-medium transition-colors duration-200">
               Get Started
             </button>
           </div>
 
           {/* Mobile Menu Button */}
           <button 
-            className="md:hidden p-2 rounded-2xl bg-gray-100 hover:bg-gray-200 transition-colors duration-300"
+            className="p-1 transition-colors duration-200 rounded-lg md:hidden hover:bg-gray-100"
             onClick={() => setIsMenuOpen(!isMenuOpen)}
           >
-            <div className="space-y-1.5">
-              <div className="w-6 h-0.5 bg-gray-700 rounded-full"></div>
-              <div className="w-6 h-0.5 bg-gray-700 rounded-full"></div>
-              <div className="w-4 h-0.5 bg-gray-700 rounded-full"></div>
-            </div>
+            {isMenuOpen ? (
+              <X className="w-6 h-6 text-gray-800" strokeWidth={2} />
+            ) : (
+              <div className="space-y-1">
+                <div className="w-5 h-0.5 bg-gray-800"></div>
+                <div className="w-5 h-0.5 bg-gray-800"></div>
+              </div>
+            )}
           </button>
         </div>
 
         {/* Mobile Menu */}
         {isMenuOpen && (
-          <div className="md:hidden py-6 border-t border-gray-200/60 bg-white/95 backdrop-blur-lg rounded-3xl mt-2 shadow-2xl">
-            <div className="flex flex-col space-y-6 px-4">
-              <a href="#features" className="text-gray-700 hover:text-gray-900 text-xl font-medium py-2 border-b border-gray-100">Features</a>
-              <a href="#record" className="text-gray-700 hover:text-gray-900 text-xl font-medium py-2 border-b border-gray-100">Record</a>
-              <a href="#lectures" className="text-gray-700 hover:text-gray-900 text-xl font-medium py-2 border-b border-gray-100">Lectures</a>
-              <button className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-8 py-4 rounded-2xl text-lg font-semibold hover:shadow-xl transition-all duration-300 mt-4">
+          <div className="py-4 border-t md:hidden border-gray-200/30">
+            <div className="flex flex-col space-y-1">
+              <a 
+                href="#record" 
+                className="px-4 py-3 text-base font-normal text-gray-800 transition-colors duration-200 rounded-lg hover:bg-gray-100"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                Record
+              </a>
+              <a 
+                href="#lectures" 
+                className="px-4 py-3 text-base font-normal text-gray-800 transition-colors duration-200 rounded-lg hover:bg-gray-100"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                Lectures
+              </a>
+              <button 
+                className="bg-blue-600 hover:bg-blue-700 text-white py-2.5 px-4 rounded-lg text-base font-medium transition-colors duration-200 mt-2"
+                onClick={() => setIsMenuOpen(false)}
+              >
                 Get Started
               </button>
             </div>
