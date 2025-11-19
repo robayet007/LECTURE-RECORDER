@@ -1,5 +1,6 @@
 // src/services/api.js
-const API_BASE_URL = 'http://3.27.83.67:5000/api';
+// const API_BASE_URL = 'http://3.27.83.67:5000/api'; // ❌ OLD - Mixed Content Error
+const API_BASE_URL = '/api'; // ✅ NEW - Vercel Proxy
 
 // Save recording to backend
 export const saveRecordingToServer = async (recordingData, audioBlob) => {
