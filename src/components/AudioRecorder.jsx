@@ -20,6 +20,9 @@ const AudioRecorder = ({ onSaveLecture }) => {
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentPlayTime, setCurrentPlayTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -28,6 +31,44 @@ const AudioRecorder = ({ onSaveLecture }) => {
   const analyserRef = useRef(null);
   const streamRef = useRef(null);
   const notesTextareaRef = useRef(null);
+  const audioRef = useRef(null);
+
+  // Audio playback functions
+  const handlePlayPause = () => {
+    if (!audioRef.current) return;
+    
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleTimeUpdate = () => {
+    if (audioRef.current) {
+      setCurrentPlayTime(audioRef.current.currentTime);
+      setDuration(audioRef.current.duration || 0);
+    }
+  };
+
+  const handleTimelineClick = (e) => {
+    if (!audioRef.current || !duration) return;
+    
+    const timeline = e.currentTarget;
+    const rect = timeline.getBoundingClientRect();
+    const percent = (e.clientX - rect.left) / rect.width;
+    const newTime = percent * duration;
+    
+    audioRef.current.currentTime = newTime;
+    setCurrentPlayTime(newTime);
+  };
+
+  const handleLoadedMetadata = () => {
+    if (audioRef.current) {
+      setDuration(audioRef.current.duration);
+    }
+  };
 
   // Background theke fire ashar por jate recording continue kore
   useEffect(() => {
@@ -92,8 +133,9 @@ const AudioRecorder = ({ onSaveLecture }) => {
   }, [isRecording, isPaused]);
 
   const formatTime = (seconds) => {
+    if (isNaN(seconds)) return "00:00";
     const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
+    const secs = Math.floor(seconds % 60);
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
@@ -476,6 +518,9 @@ const AudioRecorder = ({ onSaveLecture }) => {
     setIsAppInBackground(false);
     setIsStartingNewRecording(false);
     setIsSaving(false);
+    setIsPlaying(false);
+    setCurrentPlayTime(0);
+    setDuration(0);
     
     cleanupAudioSystems();
   };
@@ -805,16 +850,16 @@ const AudioRecorder = ({ onSaveLecture }) => {
           </div>
 
           <div className="space-y-6">
-            <div className="p-6 bg-white border shadow-lg rounded-2xl border-gray-200/60">
+            <div className="p-4 bg-white border shadow-lg rounded-2xl border-gray-200/60 sm:p-6">
               <h3 className="flex items-center mb-4 text-xl font-bold text-gray-900">
                 <Type className="mr-3 text-purple-600" size={24} />
                 Professional Notes Editor
               </h3>
               
-              <div className="flex mb-4 space-x-3">
+              <div className="flex flex-wrap gap-2 mb-4">
                 <button
                   onClick={() => formatText('bold')}
-                  className="flex items-center px-4 py-2 space-x-2 text-gray-700 transition-colors bg-gray-100 rounded-lg hover:bg-gray-200"
+                  className="flex items-center px-3 py-2 space-x-2 text-sm text-gray-700 transition-colors bg-gray-100 rounded-lg hover:bg-gray-200 sm:px-4 sm:text-base"
                 >
                   <Bold size={16} />
                   <span>Param</span>
@@ -822,7 +867,7 @@ const AudioRecorder = ({ onSaveLecture }) => {
                 
                 <button
                   onClick={() => formatText('heading')}
-                  className="flex items-center px-4 py-2 space-x-2 text-gray-700 transition-colors bg-gray-100 rounded-lg hover:bg-gray-200"
+                  className="flex items-center px-3 py-2 space-x-2 text-sm text-gray-700 transition-colors bg-gray-100 rounded-lg hover:bg-gray-200 sm:px-4 sm:text-base"
                 >
                   <Heading size={16} />
                   <span>Heading</span>
@@ -830,18 +875,20 @@ const AudioRecorder = ({ onSaveLecture }) => {
                 
                 <button
                   onClick={() => formatText('bullet')}
-                  className="flex items-center px-4 py-2 space-x-2 text-gray-700 transition-colors bg-gray-100 rounded-lg hover:bg-gray-200"
+                  className="flex items-center px-3 py-2 space-x-2 text-sm text-gray-700 transition-colors bg-gray-100 rounded-lg hover:bg-gray-200 sm:px-4 sm:text-base"
                 >
                   <span>•</span>
                   <span>List</span>
                 </button>
               </div>
 
-              <textarea
-                ref={notesTextareaRef}
-                value={lectureNotes}
-                onChange={(e) => setLectureNotes(e.target.value)}
-                placeholder="Start typing your professional notes here...
+              {/* Enhanced Textarea for Mobile */}
+              <div className="relative">
+                <textarea
+                  ref={notesTextareaRef}
+                  value={lectureNotes}
+                  onChange={(e) => setLectureNotes(e.target.value)}
+                  placeholder="Start typing your professional notes here...
 
 ## Key Topics
 • Main concepts covered
@@ -854,30 +901,85 @@ const AudioRecorder = ({ onSaveLecture }) => {
 ## Action Items
 • Practice exercises
 • Follow-up tasks"
-                rows="12"
-                className="w-full px-4 py-3 font-mono text-sm text-lg transition-all duration-300 border-2 border-gray-300 resize-none rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200"
-                disabled={showSaveForm}
-              />
+                  rows="16"
+                  className="w-full px-4 py-4 font-mono text-base transition-all duration-300 border-2 border-gray-300 resize-none rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 min-h-[400px] sm:min-h-[300px] md:min-h-[350px] lg:min-h-[400px] text-lg leading-relaxed"
+                  disabled={showSaveForm}
+                  style={{
+                    fontSize: '18px',
+                    lineHeight: '1.6',
+                    WebkitTextSizeAdjust: '100%'
+                  }}
+                />
+                
+                {/* Mobile Optimization Indicator */}
+                <div className="absolute bottom-3 right-3">
+                  <div className="flex items-center px-2 py-1 text-xs text-gray-500 bg-white rounded-lg opacity-70">
+                    <span className="sm:hidden">📱 Mobile Optimized</span>
+                    <span className="hidden sm:inline">💻 Desktop Ready</span>
+                  </div>
+                </div>
+              </div>
 
-              <div className="mt-3 text-sm text-gray-600">
-                <p><strong>Professional Formatting:</strong></p>
-                <p>• <code>( param )</code> → <strong>(param)</strong> for emphasis</p>
-                <p>• <code>## Heading</code> → Section titles</p>
-                <p>• <code>• item</code> → Organized lists</p>
+              {/* Enhanced Formatting Guide */}
+              <div className="p-3 mt-4 border border-gray-200 rounded-lg bg-gray-50">
+                <p className="mb-2 text-sm font-semibold text-gray-800">📝 Formatting Guide:</p>
+                <div className="grid grid-cols-1 gap-1 text-xs text-gray-600 sm:grid-cols-3 sm:text-sm">
+                  <div className="flex items-center">
+                    <span className="mr-2">•</span>
+                    <code>( param )</code>
+                    <span className="ml-1">→ <strong>(Bold)</strong></span>
+                  </div>
+                  <div className="flex items-center">
+                    <span className="mr-2">•</span>
+                    <code>## Heading</code>
+                    <span className="ml-1">→ Title</span>
+                  </div>
+                  <div className="flex items-center">
+                    <span className="mr-2">•</span>
+                    <code>• item</code>
+                    <span className="ml-1">→ List</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Character Count */}
+              <div className="flex justify-between mt-3 text-sm text-gray-500">
+                <span>
+                  📄 Lines: {lectureNotes.split('\n').length}
+                </span>
+                <span>
+                  ✍️ Characters: {lectureNotes.length}
+                </span>
               </div>
             </div>
 
-            <div className="p-6 border border-blue-200 bg-blue-50 rounded-2xl">
-              <h4 className="mb-3 font-semibold text-blue-900">🎯 Professional Recording Tips</h4>
+            {/* Mobile Tips Section */}
+            <div className="p-4 border border-blue-200 bg-blue-50 rounded-2xl sm:p-6">
+              <h4 className="flex items-center mb-3 font-semibold text-blue-900">
+                <span className="mr-2">📱</span>
+                Mobile Recording Tips
+              </h4>
               <ul className="space-y-2 text-sm text-blue-700">
-                <li>• <strong>Noise Cancellation</strong> removes background sounds automatically</li>
-                <li>• Speak clearly and at a consistent pace</li>
-                <li>• Use headings to structure your content</li>
-                <li>• Highlight key points with <strong>bold text</strong></li>
-                <li>• Recording quality: {noiseCancellation ? 'Professional' : 'Standard'}</li>
-                <li>• <strong>Background Recording:</strong> Continue recording even when using other apps</li>
-                <li>• <strong>Security:</strong> Password protected recording access</li>
-                <li>• <strong>Database:</strong> All recordings saved to MongoDB</li>
+                <li className="flex items-start">
+                  <span className="mr-2">•</span>
+                  <span><strong>Large Text Area:</strong> Comfortable typing on touchscreen</span>
+                </li>
+                <li className="flex items-start">
+                  <span className="mr-2">•</span>
+                  <span><strong>Quick Formatting:</strong> Use buttons for bold, headings, lists</span>
+                </li>
+                <li className="flex items-start">
+                  <span className="mr-2">•</span>
+                  <span><strong>Background Recording:</strong> Continue recording while typing notes</span>
+                </li>
+                <li className="flex items-start">
+                  <span className="mr-2">•</span>
+                  <span><strong>Auto-save:</strong> All data saved securely to database</span>
+                </li>
+                <li className="flex items-start">
+                  <span className="mr-2">•</span>
+                  <span><strong>Voice Focus:</strong> Speak clearly, phone will capture clean audio</span>
+                </li>
               </ul>
             </div>
           </div>
@@ -896,6 +998,68 @@ const AudioRecorder = ({ onSaveLecture }) => {
                 </span>
               </p>
             </div>
+
+            {/* Audio Player Section */}
+            {audioURL && (
+              <div className="max-w-2xl p-6 mx-auto mb-8 bg-gray-50 rounded-2xl">
+                <h4 className="mb-4 text-lg font-semibold text-center text-gray-900">
+                  Preview Recording
+                </h4>
+                
+                {/* Audio Player */}
+                <div className="space-y-4">
+                  {/* Timeline */}
+                  <div 
+                    className="relative h-3 bg-gray-300 rounded-full cursor-pointer"
+                    onClick={handleTimelineClick}
+                  >
+                    <div 
+                      className="absolute h-full transition-all duration-100 rounded-full bg-gradient-to-r from-blue-500 to-purple-600"
+                      style={{ 
+                        width: duration ? `${(currentPlayTime / duration) * 100}%` : '0%' 
+                      }}
+                    />
+                    <div 
+                      className="absolute w-4 h-4 -ml-2 transition-all duration-100 bg-white border-2 border-blue-500 rounded-full shadow-lg -top-1"
+                      style={{ 
+                        left: duration ? `${(currentPlayTime / duration) * 100}%` : '0%' 
+                      }}
+                    />
+                  </div>
+
+                  {/* Time Display and Controls */}
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-sm text-gray-600">
+                      {formatTime(currentPlayTime)}
+                    </span>
+                    
+                    <div className="flex items-center space-x-4">
+                      <button
+                        onClick={handlePlayPause}
+                        className="p-3 text-white transition-colors bg-blue-500 rounded-full hover:bg-blue-600"
+                      >
+                        {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+                      </button>
+                    </div>
+                    
+                    <span className="font-mono text-sm text-gray-600">
+                      {formatTime(duration)}
+                    </span>
+                  </div>
+
+                  {/* Hidden Audio Element */}
+                  <audio
+                    ref={audioRef}
+                    src={audioURL}
+                    onTimeUpdate={handleTimeUpdate}
+                    onLoadedMetadata={handleLoadedMetadata}
+                    onEnded={() => setIsPlaying(false)}
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="max-w-2xl mx-auto space-y-6">
               <div>
