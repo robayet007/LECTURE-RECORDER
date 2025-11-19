@@ -1,11 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Clock, Calendar, Volume2 } from 'lucide-react';
+import { Play, Pause, Clock, Calendar, Volume2, SkipBack, SkipForward, RotateCcw, Trash2, Lock } from 'lucide-react';
 
-const LectureList = ({ savedLectures }) => {
+const LectureList = ({ savedLectures, onDeleteLecture }) => {
   const [selectedLecture, setSelectedLecture] = useState(null);
   const [playingAudio, setPlayingAudio] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1.0);
+  const [volume, setVolume] = useState(1.0);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [lectureToDelete, setLectureToDelete] = useState(null);
   const audioRefs = useRef({});
 
   const handlePlayPause = (lectureId) => {
@@ -34,7 +41,7 @@ const LectureList = ({ savedLectures }) => {
 
   const handleTimeUpdate = (lectureId) => {
     const audioElement = audioRefs.current[lectureId];
-    if (audioElement && playingAudio === lectureId) {
+    if (audioElement && playingAudio === lectureId && !isSeeking) {
       setCurrentTime(audioElement.currentTime);
       setDuration(audioElement.duration || 0);
     }
@@ -47,10 +54,122 @@ const LectureList = ({ savedLectures }) => {
     }
   };
 
+  const handleSeek = (event) => {
+    const audioElement = audioRefs.current[selectedLecture.id];
+    if (audioElement && duration) {
+      const seekTime = (event.target.value / 100) * duration;
+      setCurrentTime(seekTime);
+      audioElement.currentTime = seekTime;
+    }
+  };
+
+  const handleSeekStart = () => {
+    setIsSeeking(true);
+  };
+
+  const handleSeekEnd = () => {
+    setIsSeeking(false);
+  };
+
+  const handleSkipBack = () => {
+    const audioElement = audioRefs.current[selectedLecture.id];
+    if (audioElement) {
+      audioElement.currentTime = Math.max(0, audioElement.currentTime - 10);
+    }
+  };
+
+  const handleSkipForward = () => {
+    const audioElement = audioRefs.current[selectedLecture.id];
+    if (audioElement) {
+      audioElement.currentTime = Math.min(duration, audioElement.currentTime + 10);
+    }
+  };
+
+  const handleRestart = () => {
+    const audioElement = audioRefs.current[selectedLecture.id];
+    if (audioElement) {
+      audioElement.currentTime = 0;
+      setCurrentTime(0);
+    }
+  };
+
+  const handlePlaybackRateChange = (rate) => {
+    const audioElement = audioRefs.current[selectedLecture.id];
+    if (audioElement) {
+      audioElement.playbackRate = rate;
+      setPlaybackRate(rate);
+    }
+  };
+
+  const handleVolumeChange = (event) => {
+    const newVolume = parseFloat(event.target.value);
+    setVolume(newVolume);
+    
+    const audioElement = audioRefs.current[selectedLecture.id];
+    if (audioElement) {
+      audioElement.volume = newVolume;
+    }
+  };
+
   const handleLectureSelect = (lecture) => {
+    // Stop current audio if playing
+    if (playingAudio) {
+      const currentAudio = audioRefs.current[playingAudio];
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+      }
+      setPlayingAudio(null);
+    }
+    
     setSelectedLecture(lecture);
-    // Reset current time when selecting new lecture
     setCurrentTime(0);
+    setPlaybackRate(1.0);
+  };
+
+  const handleDeleteClick = (lecture, e) => {
+    e.stopPropagation();
+    setLectureToDelete(lecture);
+    setShowDeleteModal(true);
+    setDeletePassword('');
+    setDeleteError('');
+  };
+
+  const handleDeleteConfirm = () => {
+    if (deletePassword === 'robayet_delete') {
+      // Stop audio if the deleted lecture is playing
+      if (playingAudio === lectureToDelete.id) {
+        const audioElement = audioRefs.current[lectureToDelete.id];
+        if (audioElement) {
+          audioElement.pause();
+          setPlayingAudio(null);
+        }
+      }
+
+      // Clear selection if the deleted lecture is selected
+      if (selectedLecture && selectedLecture.id === lectureToDelete.id) {
+        setSelectedLecture(null);
+      }
+
+      // Call parent component to delete the lecture
+      if (onDeleteLecture) {
+        onDeleteLecture(lectureToDelete.id);
+      }
+
+      setShowDeleteModal(false);
+      setLectureToDelete(null);
+      setDeletePassword('');
+    } else {
+      setDeleteError('❌ Incorrect password. Please try again.');
+      setDeletePassword('');
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteModal(false);
+    setLectureToDelete(null);
+    setDeletePassword('');
+    setDeleteError('');
   };
 
   const formatTime = (seconds) => {
@@ -63,7 +182,6 @@ const LectureList = ({ savedLectures }) => {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      // Pause all audio when component unmounts
       Object.values(audioRefs.current).forEach(audio => {
         if (audio) {
           audio.pause();
@@ -81,9 +199,80 @@ const LectureList = ({ savedLectures }) => {
             Your Lecture Library
           </h2>
           <p className="max-w-3xl mx-auto text-xl font-light text-gray-600">
-            Access all your recorded lectures with instant playback and notes
+            Access all your recorded lectures with advanced audio controls and notes
           </p>
         </div>
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+            <div className="w-full max-w-md p-6 mx-4 bg-white shadow-2xl rounded-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="flex items-center text-xl font-bold text-gray-900">
+                  <Lock className="mr-2 text-red-600" size={24} />
+                  Delete Lecture
+                </h3>
+                <button
+                  onClick={handleDeleteCancel}
+                  className="p-1 text-gray-400 transition-colors hover:text-gray-600"
+                >
+                  <Trash2 size={20} />
+                </button>
+              </div>
+              
+              <p className="mb-4 text-gray-600">
+                Are you sure you want to delete "<strong>{lectureToDelete?.title}</strong>"?
+                This action cannot be undone.
+              </p>
+              
+              <div className="p-4 mb-4 border border-red-200 rounded-lg bg-red-50">
+                <p className="text-sm font-semibold text-red-800">⚠️ This will permanently delete:</p>
+                <ul className="mt-2 ml-4 text-sm text-red-700 list-disc">
+                  <li>Lecture recording audio file</li>
+                  <li>All associated notes</li>
+                  <li>Lecture metadata and details</li>
+                </ul>
+              </div>
+
+              <div className="mb-4">
+                <label className="block mb-2 text-sm font-medium text-gray-700">
+                  Enter delete password to confirm:
+                </label>
+                <input
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Enter delete password..."
+                  className="w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:border-red-500 focus:ring-2 focus:ring-red-200"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleDeleteConfirm();
+                    }
+                  }}
+                />
+                {deleteError && (
+                  <p className="mt-2 text-sm text-red-600">{deleteError}</p>
+                )}
+              </div>
+              
+              <div className="flex space-x-3">
+                <button
+                  onClick={handleDeleteCancel}
+                  className="flex-1 px-4 py-3 font-semibold text-gray-700 transition-colors bg-gray-100 rounded-lg hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteConfirm}
+                  disabled={!deletePassword.trim()}
+                  className="flex-1 px-4 py-3 font-semibold text-white transition-colors bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Delete Permanently
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {savedLectures.length === 0 ? (
           <div className="py-16 text-center bg-white border shadow-sm rounded-3xl border-gray-200/60">
@@ -142,23 +331,32 @@ const LectureList = ({ savedLectures }) => {
                         <h4 className="flex-1 pr-2 text-lg font-semibold leading-tight text-gray-900">
                           {lecture.title}
                         </h4>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePlayPause(lecture.id);
-                          }}
-                          className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 ${
-                            playingAudio === lecture.id
-                              ? 'bg-red-500 text-white hover:bg-red-600'
-                              : 'bg-blue-500 text-white hover:bg-blue-600'
-                          }`}
-                        >
-                          {playingAudio === lecture.id ? (
-                            <Pause size={16} />
-                          ) : (
-                            <Play size={16} />
-                          )}
-                        </button>
+                        <div className="flex space-x-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePlayPause(lecture.id);
+                            }}
+                            className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 ${
+                              playingAudio === lecture.id
+                                ? 'bg-red-500 text-white hover:bg-red-600'
+                                : 'bg-blue-500 text-white hover:bg-blue-600'
+                            }`}
+                          >
+                            {playingAudio === lecture.id ? (
+                              <Pause size={16} />
+                            ) : (
+                              <Play size={16} />
+                            )}
+                          </button>
+                          <button
+                            onClick={(e) => handleDeleteClick(lecture, e)}
+                            className="flex items-center justify-center flex-shrink-0 w-10 h-10 text-gray-400 transition-all duration-300 bg-gray-100 rounded-full hover:bg-red-100 hover:text-red-600"
+                            title="Delete lecture"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </div>
 
                       <div className="flex items-center justify-between text-sm text-gray-600">
@@ -199,47 +397,152 @@ const LectureList = ({ savedLectures }) => {
                             <Calendar size={18} className="mr-2" />
                             {selectedLecture.date}
                           </span>
+                          {selectedLecture.noiseCancelled && (
+                            <span className="px-3 py-1 text-xs font-semibold text-green-800 bg-green-100 border border-green-200 rounded-full">
+                              Noise Cancelled
+                            </span>
+                          )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => handlePlayPause(selectedLecture.id)}
-                        className={`px-8 py-4 rounded-2xl font-semibold transition-all duration-300 flex items-center mt-4 sm:mt-0 ${
-                          playingAudio === selectedLecture.id
-                            ? 'bg-red-500 text-white hover:bg-red-600'
-                            : 'bg-blue-500 text-white hover:bg-blue-600'
-                        }`}
-                      >
-                        {playingAudio === selectedLecture.id ? (
-                          <>
-                            <Pause size={20} className="mr-2" />
-                            Pause
-                          </>
-                        ) : (
-                          <>
-                            <Play size={20} className="mr-2" />
-                            Play Lecture
-                          </>
-                        )}
-                      </button>
+                      <div className="flex mt-4 space-x-2 sm:mt-0">
+                        <button
+                          onClick={() => handleDeleteClick(selectedLecture, { stopPropagation: () => {} })}
+                          className="flex items-center px-4 py-4 font-semibold text-red-600 transition-colors border border-red-200 bg-red-50 rounded-2xl hover:bg-red-100"
+                        >
+                          <Trash2 size={20} className="mr-2" />
+                          Delete
+                        </button>
+                        <button
+                          onClick={() => handlePlayPause(selectedLecture.id)}
+                          className={`px-8 py-4 rounded-2xl font-semibold transition-all duration-300 flex items-center ${
+                            playingAudio === selectedLecture.id
+                              ? 'bg-red-500 text-white hover:bg-red-600'
+                              : 'bg-blue-500 text-white hover:bg-blue-600'
+                          }`}
+                        >
+                          {playingAudio === selectedLecture.id ? (
+                            <>
+                              <Pause size={20} className="mr-2" />
+                              Pause
+                            </>
+                          ) : (
+                            <>
+                              <Play size={20} className="mr-2" />
+                              Play Lecture
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
 
-                    {/* Audio Progress */}
+                    {/* Advanced Audio Controls */}
                     <div className="p-6 mb-8 bg-gray-50 rounded-2xl">
+                      {/* Progress Bar */}
                       <div className="flex items-center justify-between mb-3 text-sm text-gray-600">
                         <span>{formatTime(currentTime)}</span>
                         <span>{formatTime(duration)}</span>
                       </div>
-                      <div className="w-full h-3 bg-gray-200 rounded-full">
-                        <div 
-                          className="h-3 transition-all duration-100 rounded-full bg-gradient-to-r from-blue-500 to-purple-600"
-                          style={{ 
-                            width: duration ? `${(currentTime / duration) * 100}%` : '0%'
-                          }}
-                        />
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={duration ? (currentTime / duration) * 100 : 0}
+                        onChange={handleSeek}
+                        onMouseDown={handleSeekStart}
+                        onMouseUp={handleSeekEnd}
+                        onTouchStart={handleSeekStart}
+                        onTouchEnd={handleSeekEnd}
+                        className="w-full h-3 mb-6 bg-gray-200 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gradient-to-r [&::-webkit-slider-thumb]:from-blue-500 [&::-webkit-slider-thumb]:to-purple-600"
+                      />
+
+                      {/* Control Buttons */}
+                      <div className="flex items-center justify-center mb-6 space-x-4">
+                        <button
+                          onClick={handleRestart}
+                          className="p-3 text-gray-600 transition-colors bg-white border border-gray-300 rounded-full hover:bg-gray-50"
+                          title="Restart"
+                        >
+                          <RotateCcw size={20} />
+                        </button>
+                        
+                        <button
+                          onClick={handleSkipBack}
+                          className="p-3 text-gray-600 transition-colors bg-white border border-gray-300 rounded-full hover:bg-gray-50"
+                          title="Skip Back 10s"
+                        >
+                          <SkipBack size={20} />
+                        </button>
+                        
+                        <button
+                          onClick={() => handlePlayPause(selectedLecture.id)}
+                          className={`p-4 rounded-full transition-all duration-300 ${
+                            playingAudio === selectedLecture.id
+                              ? 'bg-red-500 text-white hover:bg-red-600'
+                              : 'bg-blue-500 text-white hover:bg-blue-600'
+                          }`}
+                        >
+                          {playingAudio === selectedLecture.id ? (
+                            <Pause size={24} />
+                          ) : (
+                            <Play size={24} />
+                          )}
+                        </button>
+                        
+                        <button
+                          onClick={handleSkipForward}
+                          className="p-3 text-gray-600 transition-colors bg-white border border-gray-300 rounded-full hover:bg-gray-50"
+                          title="Skip Forward 10s"
+                        >
+                          <SkipForward size={20} />
+                        </button>
                       </div>
-                      <p className="mt-3 text-center text-gray-500">
-                        {playingAudio === selectedLecture.id ? 'Now Playing' : 'Paused'} - {selectedLecture.duration}
-                      </p>
+
+                      {/* Playback Speed & Volume Controls */}
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        {/* Playback Speed */}
+                        <div>
+                          <label className="block mb-2 text-sm font-medium text-gray-700">
+                            Playback Speed
+                          </label>
+                          <div className="flex space-x-2">
+                            {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map(speed => (
+                              <button
+                                key={speed}
+                                onClick={() => handlePlaybackRateChange(speed)}
+                                className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
+                                  playbackRate === speed
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                }`}
+                              >
+                                {speed}x
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Volume Control */}
+                        <div>
+                          <label className="block mb-2 text-sm font-medium text-gray-700">
+                            Volume
+                          </label>
+                          <div className="flex items-center space-x-3">
+                            <Volume2 size={16} className="text-gray-500" />
+                            <input
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.1"
+                              value={volume}
+                              onChange={handleVolumeChange}
+                              className="flex-1 h-2 bg-gray-200 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500"
+                            />
+                            <span className="w-8 text-sm text-gray-600">
+                              {Math.round(volume * 100)}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Lecture Notes */}
@@ -272,7 +575,7 @@ const LectureList = ({ savedLectures }) => {
                       Select a Lecture
                     </h3>
                     <p className="max-w-md mx-auto text-gray-600">
-                      Choose a lecture from your library to listen, view progress, and read notes
+                      Choose a lecture from your library to access advanced audio controls and view detailed notes
                     </p>
                   </div>
                 )}

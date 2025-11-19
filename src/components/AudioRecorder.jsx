@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Play, Pause, Save, RotateCcw, Volume2, VolumeX, Cpu, Type, Bold, Heading, X } from 'lucide-react';
+import { Mic, Square, Play, Pause, Save, RotateCcw, VolumeX, Cpu, Type, Bold, Heading, X, Lock } from 'lucide-react';
+import { saveRecordingToServer } from '../services/api';
 
 const AudioRecorder = ({ onSaveLecture }) => {
   const [isRecording, setIsRecording] = useState(false);
@@ -12,6 +13,13 @@ const AudioRecorder = ({ onSaveLecture }) => {
   const [showSaveForm, setShowSaveForm] = useState(false);
   const [noiseCancellation, setNoiseCancellation] = useState(true);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
+  const [showNewRecordingConfirm, setShowNewRecordingConfirm] = useState(false);
+  const [isAppInBackground, setIsAppInBackground] = useState(false);
+  const [isStartingNewRecording, setIsStartingNewRecording] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -21,43 +29,94 @@ const AudioRecorder = ({ onSaveLecture }) => {
   const streamRef = useRef(null);
   const notesTextareaRef = useRef(null);
 
+  // Background theke fire ashar por jate recording continue kore
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('📱 App backgrounded - recording continues');
+        setIsAppInBackground(true);
+      } else {
+        console.log('📱 App foregrounded - recording active');
+        setIsAppInBackground(false);
+      }
+    };
+
+    const handleBlur = () => {
+      console.log('📱 Window blur - recording protected');
+    };
+
+    const handleFocus = () => {
+      console.log('📱 Window focus - recording active');
+    };
+
+    const handlePageHide = () => {
+      console.log('📱 Page hiding - recording continues in background');
+    };
+
+    const handlePageShow = () => {
+      console.log('📱 Page showing - recording was active in background');
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
+    };
+  }, []);
+
+  // Background e thakleo timer continue korbe
+  useEffect(() => {
+    if (isRecording && !isPaused) {
+      timerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [isRecording, isPaused]);
+
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Advanced WebRTC Configuration with Real Noise Cancellation
   const getAudioConstraints = () => {
     return {
       audio: {
-        // Basic noise cancellation
         echoCancellation: { ideal: true, exact: true },
         noiseSuppression: { ideal: true, exact: true },
         autoGainControl: { ideal: true, exact: true },
-        
-        // Advanced settings for crystal clear audio
-        channelCount: 1, // Mono for better voice focus
-        sampleRate: 48000, // High quality
+        channelCount: 1,
+        sampleRate: 48000,
         sampleSize: 16,
         latency: 0,
-
-        // Browser-specific advanced noise cancellation
         ...(noiseCancellation && {
-          // Google Chrome advanced features
           googEchoCancellation: { ideal: true },
           googNoiseSuppression: { ideal: true },
           googAutoGainControl: { ideal: true },
           googHighpassFilter: { ideal: true },
           googNoiseSuppression2: { ideal: true },
           googEchoCancellation2: { ideal: true },
-          
-          // Firefox advanced features
           mozNoiseSuppression: { ideal: true },
           mozEchoCancellation: { ideal: true },
           mozAutoGainControl: { ideal: true },
-
-          // Experimental features for better voice isolation
           voiceIsolation: true,
           experimentalNoiseSuppression: true,
           suppressLocalAudioPlayback: true
@@ -66,14 +125,12 @@ const AudioRecorder = ({ onSaveLecture }) => {
     };
   };
 
-  // Real-time Audio Processing with Noise Filtering
   const setupAudioProcessing = (stream) => {
     try {
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
       const source = audioContextRef.current.createMediaStreamSource(stream);
       analyserRef.current = audioContextRef.current.createAnalyser();
       
-      // Optimized settings for voice clarity
       analyserRef.current.fftSize = 1024;
       analyserRef.current.smoothingTimeConstant = 0.6;
       analyserRef.current.minDecibels = -90;
@@ -90,24 +147,18 @@ const AudioRecorder = ({ onSaveLecture }) => {
         analyserRef.current.getByteFrequencyData(dataArray);
         analyserRef.current.getFloatFrequencyData(floatArray);
 
-        // AI-powered frequency filtering for voice clarity
         const levels = Array.from({ length: 30 }, (_, i) => {
           let baseValue = dataArray[i * 1.5] || 0;
           
           if (noiseCancellation) {
-            // Human voice frequency range: 85Hz - 255Hz (boost these)
-            // Background noise: <85Hz and >255Hz (suppress these)
             if (i >= 4 && i <= 12) {
-              // Voice frequencies - boost by 60%
               baseValue = baseValue * 1.6;
             } else if (i < 3 || i > 20) {
-              // Noise frequencies - reduce by 80%
               baseValue = baseValue * 0.2;
             }
             
-            // Extra suppression for common background noises
-            if (i < 2) baseValue = baseValue * 0.1;  // Very low frequencies (rumble, fan noise)
-            if (i > 25) baseValue = baseValue * 0.1; // Very high frequencies (hiss, electrical noise)
+            if (i < 2) baseValue = baseValue * 0.1;
+            if (i > 25) baseValue = baseValue * 0.1;
           }
           
           return Math.max(3, Math.min(baseValue / 2, 70));
@@ -115,7 +166,6 @@ const AudioRecorder = ({ onSaveLecture }) => {
         
         setAudioLevels(levels);
 
-        // Real-time noise detection
         if (noiseCancellation) {
           detectBackgroundNoise(floatArray);
         }
@@ -129,18 +179,15 @@ const AudioRecorder = ({ onSaveLecture }) => {
     }
   };
 
-  // Background Noise Detection
   const detectBackgroundNoise = (floatArray) => {
-    // Analyze different frequency bands
-    const lowFreqRange = floatArray.slice(0, 10);    // 0-500Hz (background rumble)
-    const voiceFreqRange = floatArray.slice(10, 25); // 500-2000Hz (human voice)
-    const highFreqRange = floatArray.slice(25, 50);  // 2000Hz+ (hiss, electrical)
+    const lowFreqRange = floatArray.slice(0, 10);
+    const voiceFreqRange = floatArray.slice(10, 25);
+    const highFreqRange = floatArray.slice(25, 50);
     
     const lowEnergy = lowFreqRange.reduce((sum, val) => sum + Math.abs(val), 0);
     const voiceEnergy = voiceFreqRange.reduce((sum, val) => sum + Math.abs(val), 0);
     const highEnergy = highFreqRange.reduce((sum, val) => sum + Math.abs(val), 0);
     
-    // If background noise is high compared to voice, log it
     if ((lowEnergy + highEnergy) > voiceEnergy * 2) {
       console.log('🔇 Background noise detected and filtered');
     }
@@ -149,6 +196,7 @@ const AudioRecorder = ({ onSaveLecture }) => {
   const startRecording = async () => {
     try {
       console.log('🎙️ Starting professional recording...');
+      setIsStartingNewRecording(false);
       
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: getAudioConstraints(),
@@ -156,12 +204,11 @@ const AudioRecorder = ({ onSaveLecture }) => {
       });
       
       streamRef.current = stream;
-
       setupAudioProcessing(stream);
 
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm;codecs=opus',
-        audioBitsPerSecond: 192000 // High quality for clear voice
+        audioBitsPerSecond: 192000
       });
 
       mediaRecorderRef.current = mediaRecorder;
@@ -169,6 +216,8 @@ const AudioRecorder = ({ onSaveLecture }) => {
       setRecordingTime(0);
       setAudioLevels(Array(30).fill(3));
       setShowSaveForm(false);
+      setShowNewRecordingConfirm(false);
+      setIsAppInBackground(false);
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -187,16 +236,13 @@ const AudioRecorder = ({ onSaveLecture }) => {
         cleanupAudioSystems();
       };
 
-      mediaRecorder.start(50); // High frequency for better quality
+      mediaRecorder.start(50);
       setIsRecording(true);
       setIsPaused(false);
 
-      timerRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
-      }, 1000);
-
     } catch (error) {
       console.error('Recording failed:', error);
+      setIsStartingNewRecording(false);
       if (error.name === 'NotAllowedError') {
         alert('❌ Microphone access denied. Please allow microphone permissions.');
       } else if (error.name === 'NotFoundError') {
@@ -220,7 +266,6 @@ const AudioRecorder = ({ onSaveLecture }) => {
     if (mediaRecorderRef.current && isRecording && !isPaused) {
       mediaRecorderRef.current.pause();
       setIsPaused(true);
-      clearInterval(timerRef.current);
     }
   };
 
@@ -228,14 +273,9 @@ const AudioRecorder = ({ onSaveLecture }) => {
     if (mediaRecorderRef.current && isRecording && isPaused) {
       mediaRecorderRef.current.resume();
       setIsPaused(false);
-      
-      timerRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
-      }, 1000);
     }
   };
 
-  // Stop Recording with Custom Popup
   const stopRecording = () => {
     setShowStopConfirm(true);
   };
@@ -245,7 +285,6 @@ const AudioRecorder = ({ onSaveLecture }) => {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       setIsPaused(false);
-      clearInterval(timerRef.current);
       setShowSaveForm(true);
       setShowStopConfirm(false);
     }
@@ -255,7 +294,51 @@ const AudioRecorder = ({ onSaveLecture }) => {
     setShowStopConfirm(false);
   };
 
-  // Text Formatting Functions
+  const handleNewRecording = () => {
+    if (showSaveForm) {
+      setShowNewRecordingConfirm(true);
+    } else {
+      setShowPasswordModal(true);
+    }
+  };
+
+  const confirmNewRecording = () => {
+    resetRecording();
+    setShowNewRecordingConfirm(false);
+    setIsStartingNewRecording(true);
+    setShowPasswordModal(true);
+  };
+
+  const cancelNewRecording = () => {
+    setShowNewRecordingConfirm(false);
+  };
+
+  const handleRecordButtonClick = () => {
+    if (showSaveForm) {
+      setShowNewRecordingConfirm(true);
+    } else {
+      setShowPasswordModal(true);
+    }
+  };
+
+  const handlePasswordSubmit = () => {
+    if (password === 'robayet') {
+      setShowPasswordModal(false);
+      setPassword('');
+      setPasswordError('');
+      startRecording();
+    } else {
+      setPasswordError('❌ Incorrect password. Please try again.');
+      setPassword('');
+    }
+  };
+
+  const handlePasswordCancel = () => {
+    setShowPasswordModal(false);
+    setPassword('');
+    setPasswordError('');
+  };
+
   const formatText = (format) => {
     if (!notesTextareaRef.current) return;
 
@@ -264,21 +347,31 @@ const AudioRecorder = ({ onSaveLecture }) => {
     const end = textarea.selectionEnd;
     const selectedText = lectureNotes.substring(start, end);
     let newText = lectureNotes;
+    let newCursorStart = start;
+    let newCursorEnd = end;
 
     switch (format) {
       case 'bold':
         if (selectedText) {
           newText = lectureNotes.substring(0, start) + `( ${selectedText} )` + lectureNotes.substring(end);
+          newCursorStart = start + 2;
+          newCursorEnd = start + 2 + selectedText.length;
         } else {
-          newText = lectureNotes + ' ( param ) ';
+          newText = lectureNotes.substring(0, start) + '( param )' + lectureNotes.substring(end);
+          newCursorStart = start + 2;
+          newCursorEnd = start + 7;
         }
         break;
       
       case 'heading':
         if (selectedText) {
-          newText = lectureNotes.substring(0, start) + `\n## ${selectedText}\n` + lectureNotes.substring(end);
+          newText = lectureNotes.substring(0, start) + `## ${selectedText}\n` + lectureNotes.substring(end);
+          newCursorStart = start + 3;
+          newCursorEnd = start + 3 + selectedText.length;
         } else {
-          newText = lectureNotes + '\n## Heading\n';
+          newText = lectureNotes.substring(0, start) + '## Heading\n' + lectureNotes.substring(end);
+          newCursorStart = start + 3;
+          newCursorEnd = start + 10;
         }
         break;
       
@@ -286,8 +379,12 @@ const AudioRecorder = ({ onSaveLecture }) => {
         if (selectedText) {
           const bulleted = selectedText.split('\n').map(line => line.trim() ? `• ${line}` : '').join('\n');
           newText = lectureNotes.substring(0, start) + bulleted + lectureNotes.substring(end);
+          newCursorStart = start;
+          newCursorEnd = start + bulleted.length;
         } else {
-          newText = lectureNotes + '\n• \n';
+          newText = lectureNotes.substring(0, start) + '• ' + lectureNotes.substring(end);
+          newCursorStart = start + 2;
+          newCursorEnd = start + 2;
         }
         break;
       
@@ -297,41 +394,71 @@ const AudioRecorder = ({ onSaveLecture }) => {
 
     setLectureNotes(newText);
     
-    // Focus back to textarea and set cursor position
     setTimeout(() => {
       textarea.focus();
-      if (selectedText) {
-        const newPosition = start + (format === 'bold' ? 2 : format === 'heading' ? 4 : 2);
-        textarea.setSelectionRange(newPosition, newPosition + selectedText.length);
-      }
+      textarea.setSelectionRange(newCursorStart, newCursorEnd);
     }, 0);
   };
 
-  const saveRecording = () => {
+  // UPDATED: saveRecording function for MongoDB
+  const saveRecording = async () => {
     if (audioURL && lectureTitle.trim()) {
-      const newLecture = {
-        id: Date.now(),
-        title: lectureTitle.trim(),
-        duration: formatTime(recordingTime),
-        date: new Date().toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'short', 
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        }),
-        audioUrl: audioURL,
-        notes: lectureNotes,
-        category: 'Recording',
-        noiseCancelled: noiseCancellation,
-        audioQuality: 'High Definition'
-      };
+      try {
+        setIsSaving(true);
+        
+        // Create audio blob from recorded chunks
+        const audioBlob = new Blob(audioChunksRef.current, { 
+          type: 'audio/webm;codecs=opus' 
+        });
 
-      onSaveLecture(newLecture);
-      resetRecording();
-      setShowSaveForm(false);
-      
-      alert('✅ Lecture saved successfully with crystal clear audio!');
+        const recordingData = {
+          title: lectureTitle.trim(),
+          notes: lectureNotes,
+          duration: formatTime(recordingTime),
+          noiseCancelled: noiseCancellation,
+          audioQuality: 'High Definition',
+          category: 'Recording'
+        };
+
+        console.log('📤 Saving recording to MongoDB...');
+
+        // Save to MongoDB
+        const result = await saveRecordingToServer(recordingData, audioBlob);
+        
+        console.log('✅ Recording saved to MongoDB:', result);
+
+        // Call parent component's save function
+        if (onSaveLecture) {
+          onSaveLecture({
+            id: result.recording._id,
+            title: result.recording.title,
+            duration: result.recording.duration,
+            date: new Date().toLocaleDateString('en-US', { 
+              year: 'numeric', 
+              month: 'short', 
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            }),
+            audioUrl: result.recording.audioUrl,
+            notes: result.recording.notes,
+            category: 'Recording',
+            noiseCancelled: noiseCancellation,
+            audioQuality: 'High Definition'
+          });
+        }
+
+        resetRecording();
+        setShowSaveForm(false);
+        
+        alert('✅ Lecture saved successfully to MongoDB database!');
+
+      } catch (error) {
+        console.error('❌ Error saving recording:', error);
+        alert('❌ Failed to save recording. Please check if backend is running.');
+      } finally {
+        setIsSaving(false);
+      }
     } else {
       alert('Please enter a title for your lecture');
     }
@@ -346,15 +473,13 @@ const AudioRecorder = ({ onSaveLecture }) => {
     setIsPaused(false);
     setShowSaveForm(false);
     setAudioLevels(Array(30).fill(3));
+    setIsAppInBackground(false);
+    setIsStartingNewRecording(false);
+    setIsSaving(false);
     
     cleanupAudioSystems();
-    
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
   };
 
-  // Prevent accidental refresh/closing during recording
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (isRecording) {
@@ -391,7 +516,6 @@ const AudioRecorder = ({ onSaveLecture }) => {
           </p>
         </div>
 
-        {/* Custom Stop Confirmation Popup */}
         {showStopConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
             <div className="w-full max-w-md p-6 mx-4 bg-white shadow-2xl rounded-2xl">
@@ -430,10 +554,109 @@ const AudioRecorder = ({ onSaveLecture }) => {
           </div>
         )}
 
+        {showNewRecordingConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+            <div className="w-full max-w-md p-6 mx-4 bg-white shadow-2xl rounded-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-gray-900">Start New Recording?</h3>
+                <button
+                  onClick={cancelNewRecording}
+                  className="p-1 text-gray-400 transition-colors hover:text-gray-600"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <p className="mb-4 text-gray-600">
+                You are about to start a new recording. This will clear your current recording data.
+              </p>
+              
+              <div className="p-4 mb-4 border border-yellow-200 rounded-lg bg-yellow-50">
+                <p className="text-sm font-semibold text-yellow-800">⚠️ Current recording will be lost:</p>
+                <ul className="mt-2 ml-4 text-sm text-yellow-700 list-disc">
+                  <li>Recording duration: {formatTime(recordingTime)}</li>
+                  <li>Lecture title and notes</li>
+                  <li>All audio data</li>
+                </ul>
+              </div>
+              
+              <div className="flex space-x-3">
+                <button
+                  onClick={cancelNewRecording}
+                  className="flex-1 px-4 py-3 font-semibold text-gray-700 transition-colors bg-gray-100 rounded-lg hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmNewRecording}
+                  className="flex-1 px-4 py-3 font-semibold text-white transition-colors bg-green-500 rounded-lg hover:bg-green-600"
+                >
+                  Start New Recording
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showPasswordModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+            <div className="w-full max-w-md p-6 mx-4 bg-white shadow-2xl rounded-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="flex items-center text-xl font-bold text-gray-900">
+                  <Lock className="mr-2 text-blue-600" size={24} />
+                  Enter Password to Record
+                </h3>
+                <button
+                  onClick={handlePasswordCancel}
+                  className="p-1 text-gray-400 transition-colors hover:text-gray-600"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <p className="mb-4 text-gray-600">
+                Please enter the security password to start recording.
+              </p>
+              
+              <div className="mb-4">
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter password..."
+                  className="w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handlePasswordSubmit();
+                    }
+                  }}
+                />
+                {passwordError && (
+                  <p className="mt-2 text-sm text-red-600">{passwordError}</p>
+                )}
+              </div>
+              
+              <div className="flex space-x-3">
+                <button
+                  onClick={handlePasswordCancel}
+                  className="flex-1 px-4 py-3 font-semibold text-gray-700 transition-colors bg-gray-100 rounded-lg hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handlePasswordSubmit}
+                  disabled={!password.trim()}
+                  className="flex-1 px-4 py-3 font-semibold text-white transition-colors bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Start Recording
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-          {/* Recording Panel - Left Side */}
           <div className="space-y-6">
-            {/* Audio Quality Panel */}
             <div className="p-6 border border-blue-200 bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl">
               <h3 className="flex items-center mb-4 text-xl font-bold text-gray-900">
                 <Cpu className="mr-3 text-blue-600" size={24} />
@@ -464,7 +687,6 @@ const AudioRecorder = ({ onSaveLecture }) => {
                   </button>
                 </div>
                 
-                {/* Audio Quality Indicator */}
                 <div className="p-3 bg-white border border-gray-200 rounded-lg">
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-medium text-gray-700">Audio Quality:</span>
@@ -481,18 +703,23 @@ const AudioRecorder = ({ onSaveLecture }) => {
                     }
                   </p>
                 </div>
+
+                {isRecording && (
+                  <div className="p-3 border border-green-200 rounded-lg bg-green-50">
+                    <p className="text-sm text-green-800">
+                      🔄 <strong>Background Recording:</strong> Recording continues even when app is minimized or device is locked.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Recording Interface */}
             <div className="p-8 bg-white border shadow-2xl rounded-3xl border-gray-200/60">
-              {/* Recording Timer & Controls */}
               <div className="mb-8 text-center">
                 <div className="mb-8 font-mono text-6xl font-bold text-gray-900 sm:text-7xl">
                   {formatTime(recordingTime)}
                 </div>
 
-                {/* Professional Audio Visualization */}
                 <div className="flex items-end justify-center h-24 mb-8 space-x-0.5">
                   {audioLevels.map((level, index) => (
                     <div
@@ -503,7 +730,6 @@ const AudioRecorder = ({ onSaveLecture }) => {
                   ))}
                 </div>
 
-                {/* Recording Status */}
                 {isRecording && (
                   <div className="mb-6 text-center">
                     <div className="flex items-center justify-center mb-3 text-lg font-semibold">
@@ -516,21 +742,26 @@ const AudioRecorder = ({ onSaveLecture }) => {
                           Noise Cancellation ON
                         </span>
                       )}
+                      {isAppInBackground && (
+                        <span className="px-2 py-1 ml-2 text-xs text-blue-800 bg-blue-100 border border-blue-200 rounded-full">
+                          Background Active
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-gray-600">
                       {noiseCancellation 
                         ? 'Background noise is being filtered in real-time' 
                         : 'Standard recording mode'
                       }
+                      {isAppInBackground && ' • Recording continues in background'}
                     </p>
                   </div>
                 )}
 
-                {/* Recording Controls */}
                 <div className="flex justify-center space-x-4">
                   {!isRecording ? (
                     <button
-                      onClick={startRecording}
+                      onClick={handleRecordButtonClick}
                       className="p-6 text-white transition-all duration-300 transform shadow-xl bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl hover:shadow-2xl hover:scale-105 active:scale-95"
                     >
                       <Mic size={32} />
@@ -563,20 +794,17 @@ const AudioRecorder = ({ onSaveLecture }) => {
                 </div>
               </div>
 
-              {/* Recording Safety Notice */}
               {isRecording && (
                 <div className="p-4 text-center border border-green-200 bg-green-50 rounded-2xl">
                   <p className="text-sm font-medium text-green-800">
-                    🛡️ Protected Recording • 🔇 Noise Filtering Active • ⏸️ Safe Pause Available
+                    🛡️ Protected Recording • 🔇 Noise Filtering Active • 📱 Background Recording Enabled
                   </p>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Notes Panel - Right Side */}
           <div className="space-y-6">
-            {/* Notes Formatting Toolbar */}
             <div className="p-6 bg-white border shadow-lg rounded-2xl border-gray-200/60">
               <h3 className="flex items-center mb-4 text-xl font-bold text-gray-900">
                 <Type className="mr-3 text-purple-600" size={24} />
@@ -609,7 +837,6 @@ const AudioRecorder = ({ onSaveLecture }) => {
                 </button>
               </div>
 
-              {/* Notes Textarea */}
               <textarea
                 ref={notesTextareaRef}
                 value={lectureNotes}
@@ -621,7 +848,7 @@ const AudioRecorder = ({ onSaveLecture }) => {
 • Important definitions
 
 ## Important Points
-• **Critical information** that needs emphasis
+• ( Critical information ) that needs emphasis
 • Key takeaways
 
 ## Action Items
@@ -632,16 +859,14 @@ const AudioRecorder = ({ onSaveLecture }) => {
                 disabled={showSaveForm}
               />
 
-              {/* Formatting Help */}
               <div className="mt-3 text-sm text-gray-600">
                 <p><strong>Professional Formatting:</strong></p>
-                <p>• <code>Param</code> → <strong>param for emphasis</strong></p>
+                <p>• <code>( param )</code> → <strong>(param)</strong> for emphasis</p>
                 <p>• <code>## Heading</code> → Section titles</p>
                 <p>• <code>• item</code> → Organized lists</p>
               </div>
             </div>
 
-            {/* Audio Quality Tips */}
             <div className="p-6 border border-blue-200 bg-blue-50 rounded-2xl">
               <h4 className="mb-3 font-semibold text-blue-900">🎯 Professional Recording Tips</h4>
               <ul className="space-y-2 text-sm text-blue-700">
@@ -650,12 +875,14 @@ const AudioRecorder = ({ onSaveLecture }) => {
                 <li>• Use headings to structure your content</li>
                 <li>• Highlight key points with <strong>bold text</strong></li>
                 <li>• Recording quality: {noiseCancellation ? 'Professional' : 'Standard'}</li>
+                <li>• <strong>Background Recording:</strong> Continue recording even when using other apps</li>
+                <li>• <strong>Security:</strong> Password protected recording access</li>
+                <li>• <strong>Database:</strong> All recordings saved to MongoDB</li>
               </ul>
             </div>
           </div>
         </div>
 
-        {/* Save Form - Full Width */}
         {showSaveForm && (
           <div className="p-8 mt-8 bg-white border shadow-2xl rounded-3xl border-gray-200/60">
             <div className="mb-8 text-center">
@@ -687,15 +914,24 @@ const AudioRecorder = ({ onSaveLecture }) => {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <button
                   onClick={saveRecording}
-                  disabled={!lectureTitle.trim()}
+                  disabled={!lectureTitle.trim() || isSaving}
                   className="flex items-center justify-center px-8 py-4 space-x-3 text-lg font-semibold text-white transition-all duration-300 transform bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl hover:shadow-xl hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Save size={24} />
-                  <span>Save Professional Lecture</span>
+                  {isSaving ? (
+                    <>
+                      <div className="w-6 h-6 border-2 border-white rounded-full border-t-transparent animate-spin"></div>
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save size={24} />
+                      <span>Save to Database</span>
+                    </>
+                  )}
                 </button>
 
                 <button
-                  onClick={resetRecording}
+                  onClick={handleNewRecording}
                   className="flex items-center justify-center px-8 py-4 space-x-3 text-lg font-semibold text-white transition-all duration-300 transform bg-gradient-to-r from-gray-500 to-gray-600 rounded-2xl hover:shadow-xl hover:scale-105 active:scale-95"
                 >
                   <RotateCcw size={24} />
