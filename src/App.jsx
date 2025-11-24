@@ -100,6 +100,7 @@ function App() {
       <LectureList 
         savedLectures={savedLectures} 
         onDeleteLecture={handleDeleteLecture}
+        onSaveLecture={handleSaveLecture}
       />
     </div>
   );

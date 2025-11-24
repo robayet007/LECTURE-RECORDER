@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Clock, Calendar, Volume2, SkipBack, SkipForward, RotateCcw, Trash2, Lock } from 'lucide-react';
+import { Play, Pause, Clock, Calendar, Volume2, SkipBack, SkipForward, RotateCcw, Trash2, Lock, Plus, X, Upload } from 'lucide-react';
+import { saveRecordingToServer } from '../services/api';
 
-const LectureList = ({ savedLectures, onDeleteLecture }) => {
+const LectureList = ({ savedLectures, onDeleteLecture, onSaveLecture }) => {
   const [selectedLecture, setSelectedLecture] = useState(null);
   const [playingAudio, setPlayingAudio] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -13,6 +14,14 @@ const LectureList = ({ savedLectures, onDeleteLecture }) => {
   const [deletePassword, setDeletePassword] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [lectureToDelete, setLectureToDelete] = useState(null);
+  const [showAddLectureModal, setShowAddLectureModal] = useState(false);
+  const [newLectureTitle, setNewLectureTitle] = useState('');
+  const [newLectureNotes, setNewLectureNotes] = useState('');
+  const [newLectureAudio, setNewLectureAudio] = useState(null);
+  const [newLectureDuration, setNewLectureDuration] = useState('00:00');
+  const [isSavingNewLecture, setIsSavingNewLecture] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [saveStatus, setSaveStatus] = useState('');
   const audioRefs = useRef({});
 
   const handlePlayPause = (lectureId) => {
@@ -172,6 +181,106 @@ const LectureList = ({ savedLectures, onDeleteLecture }) => {
     setDeleteError('');
   };
 
+  const handleSaveNewLecture = async () => {
+    if (!newLectureTitle.trim()) {
+      alert('Please enter a lecture title');
+      return;
+    }
+
+    try {
+      setIsSavingNewLecture(true);
+      setUploadProgress(0);
+      setSaveStatus('Preparing lecture...');
+
+      const recordingData = {
+        title: newLectureTitle.trim(),
+        notes: newLectureNotes,
+        duration: newLectureDuration || '00:00',
+        noiseCancelled: false,
+        audioQuality: 'Standard',
+        category: 'Manual Upload'
+      };
+
+      let audioBlob = null;
+      
+      if (newLectureAudio) {
+        setSaveStatus('Processing audio file...');
+        setUploadProgress(5);
+        audioBlob = newLectureAudio;
+      } else {
+        // Create empty audio blob if no file provided
+        audioBlob = new Blob([], { type: 'audio/webm' });
+      }
+
+      setSaveStatus('Uploading to server...');
+      setUploadProgress(10);
+
+      // Save to backend
+      const result = await saveRecordingToServer(
+        recordingData,
+        audioBlob,
+        (progress) => {
+          setUploadProgress(10 + (progress * 0.9)); // 10-100%
+          setSaveStatus(`Uploading... ${Math.round(progress)}%`);
+        }
+      );
+
+      setUploadProgress(100);
+      setSaveStatus('Saving complete!');
+      console.log('✅ New lecture saved:', result);
+
+      // Call parent component's save function
+      if (onSaveLecture) {
+        onSaveLecture({
+          id: result.recording._id,
+          title: result.recording.title,
+          duration: result.recording.duration,
+          date: new Date().toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          }),
+          audioUrl: result.recording.audioUrl?.startsWith('http')
+            ? result.recording.audioUrl
+            : `http://3.27.83.67:5000${result.recording.audioUrl || ''}`,
+          imageUrl: result.recording.imageUrl
+            ? (result.recording.imageUrl.startsWith('http')
+                ? result.recording.imageUrl
+                : `http://3.27.83.67:5000${result.recording.imageUrl}`)
+            : null,
+          notes: result.recording.notes,
+          category: 'Manual Upload',
+          noiseCancelled: false,
+          audioQuality: 'Standard'
+        });
+      }
+
+      // Reset form and close modal
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      setShowAddLectureModal(false);
+      setNewLectureTitle('');
+      setNewLectureNotes('');
+      setNewLectureAudio(null);
+      setNewLectureDuration('00:00');
+      setUploadProgress(0);
+      setSaveStatus('');
+      
+      alert('✅ Lecture added successfully!');
+
+    } catch (error) {
+      console.error('❌ Error saving new lecture:', error);
+      setSaveStatus('Upload failed!');
+      alert(`❌ Failed to save lecture: ${error.message || 'Please check if backend is running.'}`);
+    } finally {
+      setIsSavingNewLecture(false);
+      setUploadProgress(0);
+      setSaveStatus('');
+    }
+  };
+
   const formatTime = (seconds) => {
     if (!seconds || isNaN(seconds)) return '00:00';
     const mins = Math.floor(seconds / 60);
@@ -195,13 +304,205 @@ const LectureList = ({ savedLectures, onDeleteLecture }) => {
     <section id="lectures" className="px-4 py-20 bg-gray-50">
       <div className="mx-auto max-w-7xl">
         <div className="mb-16 text-center">
-          <h2 className="mb-6 text-4xl font-bold text-gray-900 sm:text-5xl">
-            Your Lecture Library
-          </h2>
+          <div className="flex items-center justify-center gap-4 mb-6">
+            <h2 className="text-4xl font-bold text-gray-900 sm:text-5xl">
+              Your Lecture Library
+            </h2>
+            <button
+              onClick={() => setShowAddLectureModal(true)}
+              className="flex items-center gap-2 px-6 py-3 text-lg font-semibold text-white transition-all duration-300 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl hover:shadow-xl hover:scale-105"
+              title="Add New Lecture"
+            >
+              <Plus size={24} />
+              <span className="hidden sm:inline">Add Lecture</span>
+            </button>
+          </div>
           <p className="max-w-3xl mx-auto text-xl font-light text-gray-600">
             Access all your recorded lectures with advanced audio controls and notes
           </p>
         </div>
+
+        {/* Add Lecture Modal */}
+        {showAddLectureModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+            <div className="w-full max-w-2xl p-6 mx-4 bg-white shadow-2xl rounded-2xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="flex items-center text-2xl font-bold text-gray-900">
+                  <Plus className="mr-2 text-green-600" size={28} />
+                  Add New Lecture
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowAddLectureModal(false);
+                    setNewLectureTitle('');
+                    setNewLectureNotes('');
+                    setNewLectureAudio(null);
+                    setNewLectureDuration('00:00');
+                    setUploadProgress(0);
+                    setSaveStatus('');
+                  }}
+                  className="p-1 text-gray-400 transition-colors hover:text-gray-600"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* Title */}
+                <div>
+                  <label className="block mb-2 text-sm font-semibold text-gray-700">
+                    Lecture Title *
+                  </label>
+                  <input
+                    type="text"
+                    value={newLectureTitle}
+                    onChange={(e) => setNewLectureTitle(e.target.value)}
+                    placeholder="e.g., Advanced IELTS Grammar - Perfect Tenses"
+                    className="w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-200"
+                    disabled={isSavingNewLecture}
+                  />
+                </div>
+
+                {/* Audio File Upload */}
+                <div>
+                  <label className="block mb-2 text-sm font-semibold text-gray-700">
+                    Audio File (Optional)
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <label className="flex-1 cursor-pointer">
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        onChange={(e) => {
+                          const file = e.target.files[0];
+                          if (file) {
+                            setNewLectureAudio(file);
+                            // Try to get duration from audio file
+                            const audio = new Audio();
+                            audio.src = URL.createObjectURL(file);
+                            audio.addEventListener('loadedmetadata', () => {
+                              const mins = Math.floor(audio.duration / 60);
+                              const secs = Math.floor(audio.duration % 60);
+                              setNewLectureDuration(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+                            });
+                          }
+                        }}
+                        className="hidden"
+                        disabled={isSavingNewLecture}
+                      />
+                      <div className="flex items-center gap-3 px-4 py-3 transition-colors border-2 border-gray-300 border-dashed rounded-xl hover:border-green-500">
+                        <Upload size={20} className="text-gray-500" />
+                        <span className="text-gray-600">
+                          {newLectureAudio ? newLectureAudio.name : 'Choose audio file...'}
+                        </span>
+                      </div>
+                    </label>
+                    {newLectureAudio && (
+                      <button
+                        onClick={() => setNewLectureAudio(null)}
+                        className="p-2 text-red-500 rounded-lg hover:bg-red-50"
+                        disabled={isSavingNewLecture}
+                      >
+                        <X size={20} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Duration */}
+                <div>
+                  <label className="block mb-2 text-sm font-semibold text-gray-700">
+                    Duration (MM:SS)
+                  </label>
+                  <input
+                    type="text"
+                    value={newLectureDuration}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Allow only MM:SS format
+                      if (/^\d{0,2}:?\d{0,2}$/.test(value) || value === '') {
+                        setNewLectureDuration(value);
+                      }
+                    }}
+                    placeholder="00:00"
+                    className="w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-200"
+                    disabled={isSavingNewLecture}
+                  />
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block mb-2 text-sm font-semibold text-gray-700">
+                    Lecture Notes
+                  </label>
+                  <textarea
+                    value={newLectureNotes}
+                    onChange={(e) => setNewLectureNotes(e.target.value)}
+                    placeholder="Add your lecture notes here..."
+                    rows="8"
+                    className="w-full px-4 py-3 text-base border-2 border-gray-300 resize-none rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-200"
+                    disabled={isSavingNewLecture}
+                  />
+                </div>
+
+                {/* Upload Progress */}
+                {isSavingNewLecture && (
+                  <div className="p-4 border border-blue-200 bg-blue-50 rounded-xl">
+                    <div className="mb-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-semibold text-blue-900">
+                          {saveStatus || 'Saving...'}
+                        </span>
+                        <span className="text-sm font-bold text-blue-700">
+                          {Math.round(uploadProgress)}%
+                        </span>
+                      </div>
+                      <div className="w-full h-2 overflow-hidden bg-blue-200 rounded-full">
+                        <div 
+                          className="h-full transition-all duration-300 bg-gradient-to-r from-blue-500 to-green-500"
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-4">
+                  <button
+                    onClick={() => {
+                      setShowAddLectureModal(false);
+                      setNewLectureTitle('');
+                      setNewLectureNotes('');
+                      setNewLectureAudio(null);
+                      setNewLectureDuration('00:00');
+                      setUploadProgress(0);
+                      setSaveStatus('');
+                    }}
+                    className="flex-1 px-6 py-3 font-semibold text-gray-700 transition-colors bg-gray-100 rounded-xl hover:bg-gray-200"
+                    disabled={isSavingNewLecture}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveNewLecture}
+                    disabled={!newLectureTitle.trim() || isSavingNewLecture}
+                    className="flex-1 px-6 py-3 font-semibold text-white transition-colors bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSavingNewLecture ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <div className="w-5 h-5 border-2 border-white rounded-full border-t-transparent animate-spin"></div>
+                        Saving...
+                      </span>
+                    ) : (
+                      'Save Lecture'
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Delete Confirmation Modal */}
         {showDeleteModal && (
@@ -283,15 +584,24 @@ const LectureList = ({ savedLectures, onDeleteLecture }) => {
               No Lectures Yet
             </h3>
             <p className="max-w-md mx-auto mb-8 text-gray-600">
-              Record your first lecture using the recording section above. 
+              Record your first lecture using the recording section above, or add a lecture manually.
               Your saved lectures will appear here automatically.
             </p>
-            <a 
-              href="#record"
-              className="inline-block px-8 py-4 text-lg font-semibold text-white transition-all duration-300 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl hover:shadow-xl"
-            >
-              Start Recording
-            </a>
+            <div className="flex flex-col justify-center gap-4 sm:flex-row">
+              <a 
+                href="#record"
+                className="inline-block px-8 py-4 text-lg font-semibold text-white transition-all duration-300 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl hover:shadow-xl"
+              >
+                Start Recording
+              </a>
+              <button
+                onClick={() => setShowAddLectureModal(true)}
+                className="inline-flex items-center justify-center gap-2 px-8 py-4 text-lg font-semibold text-white transition-all duration-300 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl hover:shadow-xl"
+              >
+                <Plus size={24} />
+                Add Lecture
+              </button>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
