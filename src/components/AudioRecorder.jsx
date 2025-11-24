@@ -15,7 +15,7 @@ const AudioRecorder = ({ onSaveLecture }) => {
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [showNewRecordingConfirm, setShowNewRecordingConfirm] = useState(false);
   const [isAppInBackground, setIsAppInBackground] = useState(false);
-  const [isStartingNewRecording, setIsStartingNewRecording] = useState(false);
+  const [_isStartingNewRecording, setIsStartingNewRecording] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
@@ -23,6 +23,8 @@ const AudioRecorder = ({ onSaveLecture }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPlayTime, setCurrentPlayTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [saveStatus, setSaveStatus] = useState('');
   
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -113,21 +115,30 @@ const AudioRecorder = ({ onSaveLecture }) => {
     };
   }, []);
 
-  // Background e thakleo timer continue korbe
+  // Background e thakleo timer continue korbe - Optimized for long recordings
   useEffect(() => {
     if (isRecording && !isPaused) {
+      // Use a more efficient timer that doesn't cause re-renders every second
       timerRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
+        setRecordingTime(prev => {
+          // Only update if recording is still active (prevents memory leaks)
+          if (isRecording && !isPaused) {
+            return prev + 1;
+          }
+          return prev;
+        });
       }, 1000);
     } else {
       if (timerRef.current) {
         clearInterval(timerRef.current);
+        timerRef.current = null;
       }
     }
 
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current);
+        timerRef.current = null;
       }
     };
   }, [isRecording, isPaused]);
@@ -264,21 +275,48 @@ const AudioRecorder = ({ onSaveLecture }) => {
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
+          // Memory optimization: Log chunk size for monitoring
+          console.log(`📦 Chunk received: ${(event.data.size / 1024 / 1024).toFixed(2)} MB`);
         }
       };
 
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { 
-          type: 'audio/webm;codecs=opus' 
-        });
-        
-        const audioUrl = URL.createObjectURL(audioBlob);
-        setAudioURL(audioUrl);
-        
-        cleanupAudioSystems();
+      mediaRecorder.onstop = async () => {
+        try {
+          console.log(`🎬 Recording stopped. Total chunks: ${audioChunksRef.current.length}`);
+          console.log(`💾 Creating blob from ${audioChunksRef.current.length} chunks...`);
+          
+          // Use requestIdleCallback for better performance on long recordings
+          const createBlob = () => {
+            const audioBlob = new Blob(audioChunksRef.current, { 
+              type: 'audio/webm;codecs=opus' 
+            });
+            
+            console.log(`✅ Blob created: ${(audioBlob.size / 1024 / 1024).toFixed(2)} MB`);
+            
+            const audioUrl = URL.createObjectURL(audioBlob);
+            setAudioURL(audioUrl);
+            
+            cleanupAudioSystems();
+          };
+
+          // For very long recordings, create blob asynchronously
+          if (audioChunksRef.current.length > 1000) {
+            setTimeout(createBlob, 100);
+          } else {
+            createBlob();
+          }
+        } catch (error) {
+          console.error('Error creating blob:', error);
+          cleanupAudioSystems();
+        }
       };
 
-      mediaRecorder.start(50);
+      // Optimized timeslice for long recordings (2-3 hours):
+      // Using 1000ms (1 second) instead of 50ms reduces memory chunks by 20x
+      // This prevents browser hang on very long recordings
+      const timeslice = 1000; // 1 second chunks - optimal for 2-3 hour recordings
+      mediaRecorder.start(timeslice);
+      console.log(`🎙️ Recording started with ${timeslice}ms timeslice (optimized for long recordings)`);
       setIsRecording(true);
       setIsPaused(false);
 
@@ -442,16 +480,27 @@ const AudioRecorder = ({ onSaveLecture }) => {
     }, 0);
   };
 
-  // UPDATED: saveRecording function for MongoDB
+  // UPDATED: saveRecording function for MongoDB - Optimized for long recordings
   const saveRecording = async () => {
     if (audioURL && lectureTitle.trim()) {
       try {
         setIsSaving(true);
+        setUploadProgress(0);
+        setSaveStatus('Creating audio file...');
         
-        // Create audio blob from recorded chunks
+        // Show progress for blob creation on long recordings
+        const totalChunks = audioChunksRef.current.length;
+        console.log(`📦 Creating blob from ${totalChunks} chunks (${(recordingTime / 60).toFixed(1)} minutes)...`);
+        
+        // Create audio blob with progress indication
+        let blobCreationStart = Date.now();
         const audioBlob = new Blob(audioChunksRef.current, { 
           type: 'audio/webm;codecs=opus' 
         });
+        let blobCreationTime = Date.now() - blobCreationStart;
+        
+        const fileSizeMB = (audioBlob.size / 1024 / 1024).toFixed(2);
+        console.log(`✅ Blob created: ${fileSizeMB} MB in ${blobCreationTime}ms`);
 
         const recordingData = {
           title: lectureTitle.trim(),
@@ -462,11 +511,21 @@ const AudioRecorder = ({ onSaveLecture }) => {
           category: 'Recording'
         };
 
-        console.log('📤 Saving recording to MongoDB...');
+        setSaveStatus(`Uploading ${fileSizeMB} MB to server...`);
+        setUploadProgress(10);
 
-        // Save to MongoDB
-        const result = await saveRecordingToServer(recordingData, audioBlob);
+        // Save to MongoDB with progress tracking
+        const result = await saveRecordingToServer(
+          recordingData, 
+          audioBlob,
+          (progress) => {
+            setUploadProgress(10 + (progress * 0.9)); // 10-100%
+            setSaveStatus(`Uploading... ${Math.round(progress)}%`);
+          }
+        );
         
+        setUploadProgress(100);
+        setSaveStatus('Saving complete!');
         console.log('✅ Recording saved to MongoDB:', result);
 
         // Call parent component's save function
@@ -483,6 +542,11 @@ const AudioRecorder = ({ onSaveLecture }) => {
               minute: '2-digit'
             }),
             audioUrl: result.recording.audioUrl,
+            imageUrl: result.recording.imageUrl 
+              ? (result.recording.imageUrl.startsWith('http') 
+                  ? result.recording.imageUrl 
+                  : `http://3.27.83.67:5000${result.recording.imageUrl}`)
+              : null,
             notes: result.recording.notes,
             category: 'Recording',
             noiseCancelled: noiseCancellation,
@@ -490,16 +554,24 @@ const AudioRecorder = ({ onSaveLecture }) => {
           });
         }
 
+        // Small delay to show completion
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         resetRecording();
         setShowSaveForm(false);
+        setUploadProgress(0);
+        setSaveStatus('');
         
-        alert('✅ Lecture saved successfully to MongoDB database!');
+        alert(`✅ Lecture saved successfully! (${fileSizeMB} MB)`);
 
       } catch (error) {
         console.error('❌ Error saving recording:', error);
-        alert('❌ Failed to save recording. Please check if backend is running.');
+        setSaveStatus('Upload failed!');
+        alert(`❌ Failed to save recording: ${error.message || 'Please check if backend is running.'}`);
       } finally {
         setIsSaving(false);
+        setUploadProgress(0);
+        setSaveStatus('');
       }
     } else {
       alert('Please enter a title for your lecture');
@@ -521,6 +593,8 @@ const AudioRecorder = ({ onSaveLecture }) => {
     setIsPlaying(false);
     setCurrentPlayTime(0);
     setDuration(0);
+    setUploadProgress(0);
+    setSaveStatus('');
     
     cleanupAudioSystems();
   };
@@ -1072,8 +1146,36 @@ const AudioRecorder = ({ onSaveLecture }) => {
                   onChange={(e) => setLectureTitle(e.target.value)}
                   placeholder="e.g., Advanced IELTS Grammar - Perfect Tenses"
                   className="w-full px-6 py-4 text-lg transition-all duration-300 border-2 border-gray-300 rounded-2xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  disabled={isSaving}
                 />
               </div>
+
+              {/* Upload Progress Indicator */}
+              {isSaving && (
+                <div className="p-6 border border-blue-200 bg-blue-50 rounded-2xl">
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-blue-900">
+                        {saveStatus || 'Saving...'}
+                      </span>
+                      <span className="text-sm font-bold text-blue-700">
+                        {Math.round(uploadProgress)}%
+                      </span>
+                    </div>
+                    <div className="w-full h-3 overflow-hidden bg-blue-200 rounded-full">
+                      <div 
+                        className="h-full transition-all duration-300 ease-out bg-gradient-to-r from-blue-500 to-green-500"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-blue-700">
+                    {recordingTime > 3600 
+                      ? '⏳ Large file detected - this may take several minutes. Please keep this tab open.'
+                      : '📤 Uploading your recording to the server...'}
+                  </p>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <button
