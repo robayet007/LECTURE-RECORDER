@@ -24,7 +24,7 @@ const LectureList = ({ savedLectures, onDeleteLecture, onSaveLecture }) => {
   const [saveStatus, setSaveStatus] = useState('');
   const audioRefs = useRef({});
 
-  const handlePlayPause = (lectureId) => {
+  const handlePlayPause = async (lectureId) => {
     const audioElement = audioRefs.current[lectureId];
     const lecture = savedLectures.find(l => l.id === lectureId);
 
@@ -53,12 +53,58 @@ const LectureList = ({ savedLectures, onDeleteLecture, onSaveLecture }) => {
         }
       }
 
+      // Check audio element error state
+      if (audioElement.error) {
+        const errorCode = audioElement.error.code;
+        const errorMessages = {
+          1: 'MEDIA_ERR_ABORTED - Audio loading aborted',
+          2: 'MEDIA_ERR_NETWORK - Network error while loading audio',
+          3: 'MEDIA_ERR_DECODE - Audio decoding error',
+          4: 'MEDIA_ERR_SRC_NOT_SUPPORTED - Audio format not supported'
+        };
+        const errorMsg = errorMessages[errorCode] || `Error code: ${errorCode}`;
+        console.error('❌ Audio element has error:', errorMsg);
+        alert(`❌ Cannot play audio: ${errorMsg}\n\nPlease check if the audio file exists on the server.\nURL: ${lecture?.audioUrl}`);
+        return;
+      }
+
       // Check if audio is ready
       if (audioElement.readyState < 2) {
         console.log('⏳ Audio loading...', lecture?.audioUrl);
-        audioElement.addEventListener('canplay', () => {
+        console.log('Audio readyState:', audioElement.readyState, '(0=HAVE_NOTHING, 1=HAVE_METADATA, 2=HAVE_CURRENT_DATA, 3=HAVE_FUTURE_DATA, 4=HAVE_ENOUGH_DATA)');
+        
+        // Wait for audio to be ready
+        const waitForAudio = () => {
+          return new Promise((resolve, reject) => {
+            if (audioElement.readyState >= 2) {
+              resolve();
+              return;
+            }
+            
+            const timeout = setTimeout(() => {
+              reject(new Error('Audio loading timeout'));
+            }, 10000); // 10 second timeout
+            
+            audioElement.addEventListener('canplay', () => {
+              clearTimeout(timeout);
+              resolve();
+            }, { once: true });
+            
+            audioElement.addEventListener('error', () => {
+              clearTimeout(timeout);
+              reject(new Error('Audio loading failed'));
+            }, { once: true });
+          });
+        };
+        
+        try {
+          await waitForAudio();
           console.log('✅ Audio ready to play');
-        }, { once: true });
+        } catch (error) {
+          console.error('❌ Audio loading failed:', error);
+          alert(`❌ Audio failed to load: ${error.message}\n\nURL: ${lecture?.audioUrl}`);
+          return;
+        }
       }
 
       // Play new audio with error handling
@@ -72,7 +118,8 @@ const LectureList = ({ savedLectures, onDeleteLecture, onSaveLecture }) => {
           .catch((error) => {
             console.error('❌ Audio play error:', error);
             console.error('Audio URL:', lecture?.audioUrl);
-            console.error('Audio element:', audioElement);
+            console.error('Audio element readyState:', audioElement.readyState);
+            console.error('Audio element error:', audioElement.error);
             alert(`❌ Cannot play audio: ${error.message || 'Audio file may be corrupted or unavailable'}\n\nURL: ${lecture?.audioUrl}`);
           });
       } else {
@@ -678,24 +725,48 @@ const LectureList = ({ savedLectures, onDeleteLecture, onSaveLecture }) => {
                               if (audioUrl && !audioUrl.startsWith('http')) {
                                 // Use relative path for Vercel proxy (HTTPS compatible)
                                 audioUrl = audioUrl.startsWith('/') ? audioUrl : `/${audioUrl}`;
-                                el.src = audioUrl;
-                              } else {
-                                el.src = audioUrl;
                               }
                               
-                              // Handle audio errors
-                              el.onerror = (e) => {
+                              // Set source and handle loading
+                              el.src = audioUrl;
+                              el.load(); // Explicitly load the audio
+                              
+                              // Handle audio errors with retry
+                              let retryCount = 0;
+                              const maxRetries = 2;
+                              
+                              el.onerror = () => {
                                 console.error('❌ Audio load error for:', lecture.title);
                                 console.error('Audio URL:', audioUrl);
-                                console.error('Error details:', e);
+                                console.error('Error code:', el.error?.code, 'Message:', el.error?.message);
+                                
+                                // Try to reload once
+                                if (retryCount < maxRetries) {
+                                  retryCount++;
+                                  console.log(`🔄 Retrying audio load (attempt ${retryCount}/${maxRetries})...`);
+                                  setTimeout(() => {
+                                    el.load();
+                                  }, 1000);
+                                } else {
+                                  console.error('❌ Failed to load audio after retries');
+                                }
                               };
                               
                               el.oncanplay = () => {
                                 console.log('✅ Audio ready:', lecture.title);
+                                retryCount = 0; // Reset retry count on success
                               };
                               
                               el.onloadedmetadata = () => {
                                 console.log('✅ Audio metadata loaded:', lecture.title, 'Duration:', el.duration);
+                              };
+                              
+                              el.onloadstart = () => {
+                                console.log('⏳ Audio loading started:', lecture.title, audioUrl);
+                              };
+                              
+                              el.onstalled = () => {
+                                console.warn('⚠️ Audio loading stalled:', lecture.title);
                               };
                             }
                           }}
@@ -704,8 +775,11 @@ const LectureList = ({ savedLectures, onDeleteLecture, onSaveLecture }) => {
                           onTimeUpdate={() => handleTimeUpdate(lecture.id)}
                           onLoadedMetadata={() => handleLoadedMetadata(lecture.id)}
                           onEnded={() => setPlayingAudio(null)}
-                          onError={(e) => {
-                            console.error('❌ Audio element error:', lecture.title, e);
+                          onError={() => {
+                            console.error('❌ Audio element error:', lecture.title);
+                            if (audioRefs.current[lecture.id]?.error) {
+                              console.error('Error code:', audioRefs.current[lecture.id].error.code);
+                            }
                           }}
                         />
                       )}
