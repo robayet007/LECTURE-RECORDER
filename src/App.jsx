@@ -33,9 +33,11 @@ function App() {
               minute: '2-digit'
             })
           : recording.date,
-        audioUrl: recording.audioUrl.startsWith('http') 
-          ? recording.audioUrl 
-          : `http://3.27.83.67:5000${recording.audioUrl}`,
+        audioUrl: recording.audioUrl 
+          ? (recording.audioUrl.startsWith('http') 
+              ? recording.audioUrl 
+              : `http://3.27.83.67:5000${recording.audioUrl}`)
+          : null,
         notes: recording.notes,
         noiseCancelled: recording.noiseCancelled,
         audioQuality: recording.audioQuality

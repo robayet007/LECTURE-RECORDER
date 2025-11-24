@@ -26,6 +26,19 @@ const LectureList = ({ savedLectures, onDeleteLecture, onSaveLecture }) => {
 
   const handlePlayPause = (lectureId) => {
     const audioElement = audioRefs.current[lectureId];
+    const lecture = savedLectures.find(l => l.id === lectureId);
+
+    // Check if audio URL exists
+    if (!lecture?.audioUrl) {
+      alert('❌ Audio file not available for this lecture');
+      return;
+    }
+
+    if (!audioElement) {
+      console.error('Audio element not found for lecture:', lectureId);
+      alert('❌ Audio player not initialized. Please refresh the page.');
+      return;
+    }
 
     if (playingAudio === lectureId) {
       audioElement.pause();
@@ -40,9 +53,29 @@ const LectureList = ({ savedLectures, onDeleteLecture, onSaveLecture }) => {
         }
       }
 
-      // Play new audio
-      if (audioElement) {
-        audioElement.play();
+      // Check if audio is ready
+      if (audioElement.readyState < 2) {
+        console.log('⏳ Audio loading...', lecture?.audioUrl);
+        audioElement.addEventListener('canplay', () => {
+          console.log('✅ Audio ready to play');
+        }, { once: true });
+      }
+
+      // Play new audio with error handling
+      const playPromise = audioElement.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            setPlayingAudio(lectureId);
+            console.log('✅ Audio playing:', lecture?.title, 'URL:', lecture?.audioUrl);
+          })
+          .catch((error) => {
+            console.error('❌ Audio play error:', error);
+            console.error('Audio URL:', lecture?.audioUrl);
+            console.error('Audio element:', audioElement);
+            alert(`❌ Cannot play audio: ${error.message || 'Audio file may be corrupted or unavailable'}\n\nURL: ${lecture?.audioUrl}`);
+          });
+      } else {
         setPlayingAudio(lectureId);
       }
     }
@@ -242,9 +275,11 @@ const LectureList = ({ savedLectures, onDeleteLecture, onSaveLecture }) => {
             hour: '2-digit',
             minute: '2-digit'
           }),
-          audioUrl: result.recording.audioUrl?.startsWith('http')
-            ? result.recording.audioUrl
-            : `http://3.27.83.67:5000${result.recording.audioUrl || ''}`,
+          audioUrl: result.recording.audioUrl 
+            ? (result.recording.audioUrl.startsWith('http')
+                ? result.recording.audioUrl
+                : `http://3.27.83.67:5000${result.recording.audioUrl}`)
+            : null,
           imageUrl: result.recording.imageUrl
             ? (result.recording.imageUrl.startsWith('http')
                 ? result.recording.imageUrl
@@ -628,14 +663,47 @@ const LectureList = ({ savedLectures, onDeleteLecture, onSaveLecture }) => {
                       onClick={() => handleLectureSelect(lecture)}
                     >
                       {/* Hidden audio element */}
-                      <audio
-                        ref={el => audioRefs.current[lecture.id] = el}
-                        src={lecture.audioUrl}
-                        preload="metadata"
-                        onTimeUpdate={() => handleTimeUpdate(lecture.id)}
-                        onLoadedMetadata={() => handleLoadedMetadata(lecture.id)}
-                        onEnded={() => setPlayingAudio(null)}
-                      />
+                      {lecture.audioUrl && (
+                        <audio
+                          ref={el => {
+                            if (el) {
+                              audioRefs.current[lecture.id] = el;
+                              
+                              // Format audio URL properly
+                              let audioUrl = lecture.audioUrl;
+                              if (audioUrl && !audioUrl.startsWith('http')) {
+                                audioUrl = `http://3.27.83.67:5000${audioUrl}`;
+                                el.src = audioUrl;
+                              } else {
+                                el.src = audioUrl;
+                              }
+                              
+                              // Handle audio errors
+                              el.onerror = (e) => {
+                                console.error('❌ Audio load error for:', lecture.title);
+                                console.error('Audio URL:', audioUrl);
+                                console.error('Error details:', e);
+                              };
+                              
+                              el.oncanplay = () => {
+                                console.log('✅ Audio ready:', lecture.title);
+                              };
+                              
+                              el.onloadedmetadata = () => {
+                                console.log('✅ Audio metadata loaded:', lecture.title, 'Duration:', el.duration);
+                              };
+                            }
+                          }}
+                          preload="metadata"
+                          crossOrigin="anonymous"
+                          onTimeUpdate={() => handleTimeUpdate(lecture.id)}
+                          onLoadedMetadata={() => handleLoadedMetadata(lecture.id)}
+                          onEnded={() => setPlayingAudio(null)}
+                          onError={(e) => {
+                            console.error('❌ Audio element error:', lecture.title, e);
+                          }}
+                        />
+                      )}
                       
                       <div className="flex items-start justify-between mb-3">
                         <h4 className="flex-1 pr-2 text-lg font-semibold leading-tight text-gray-900">

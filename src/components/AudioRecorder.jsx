@@ -541,7 +541,11 @@ const AudioRecorder = ({ onSaveLecture }) => {
               hour: '2-digit',
               minute: '2-digit'
             }),
-            audioUrl: result.recording.audioUrl,
+            audioUrl: result.recording.audioUrl 
+              ? (result.recording.audioUrl.startsWith('http')
+                  ? result.recording.audioUrl
+                  : `http://3.27.83.67:5000${result.recording.audioUrl}`)
+              : null,
             imageUrl: result.recording.imageUrl 
               ? (result.recording.imageUrl.startsWith('http') 
                   ? result.recording.imageUrl 
