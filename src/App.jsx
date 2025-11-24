@@ -36,7 +36,9 @@ function App() {
         audioUrl: recording.audioUrl 
           ? (recording.audioUrl.startsWith('http') 
               ? recording.audioUrl 
-              : `http://3.27.83.67:5000${recording.audioUrl}`)
+              : recording.audioUrl.startsWith('/')
+                ? recording.audioUrl  // Already has leading slash, use as-is (goes through Vercel proxy)
+                : `/${recording.audioUrl}`)  // Add leading slash for Vercel proxy
           : null,
         notes: recording.notes,
         noiseCancelled: recording.noiseCancelled,

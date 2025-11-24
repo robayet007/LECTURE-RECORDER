@@ -544,12 +544,16 @@ const AudioRecorder = ({ onSaveLecture }) => {
             audioUrl: result.recording.audioUrl 
               ? (result.recording.audioUrl.startsWith('http')
                   ? result.recording.audioUrl
-                  : `http://3.27.83.67:5000${result.recording.audioUrl}`)
+                  : result.recording.audioUrl.startsWith('/')
+                    ? result.recording.audioUrl  // Already has leading slash, use as-is (goes through Vercel proxy)
+                    : `/${result.recording.audioUrl}`)  // Add leading slash for Vercel proxy
               : null,
             imageUrl: result.recording.imageUrl 
               ? (result.recording.imageUrl.startsWith('http') 
                   ? result.recording.imageUrl 
-                  : `http://3.27.83.67:5000${result.recording.imageUrl}`)
+                  : result.recording.imageUrl.startsWith('/')
+                    ? result.recording.imageUrl  // Already has leading slash, use as-is (goes through Vercel proxy)
+                    : `/${result.recording.imageUrl}`)  // Add leading slash for Vercel proxy
               : null,
             notes: result.recording.notes,
             category: 'Recording',

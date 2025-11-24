@@ -278,12 +278,16 @@ const LectureList = ({ savedLectures, onDeleteLecture, onSaveLecture }) => {
           audioUrl: result.recording.audioUrl 
             ? (result.recording.audioUrl.startsWith('http')
                 ? result.recording.audioUrl
-                : `http://3.27.83.67:5000${result.recording.audioUrl}`)
+                : result.recording.audioUrl.startsWith('/')
+                  ? result.recording.audioUrl  // Already has leading slash, use as-is (goes through Vercel proxy)
+                  : `/${result.recording.audioUrl}`)  // Add leading slash for Vercel proxy
             : null,
           imageUrl: result.recording.imageUrl
             ? (result.recording.imageUrl.startsWith('http')
                 ? result.recording.imageUrl
-                : `http://3.27.83.67:5000${result.recording.imageUrl}`)
+                : result.recording.imageUrl.startsWith('/')
+                  ? result.recording.imageUrl  // Already has leading slash, use as-is (goes through Vercel proxy)
+                  : `/${result.recording.imageUrl}`)  // Add leading slash for Vercel proxy
             : null,
           notes: result.recording.notes,
           category: 'Manual Upload',
@@ -669,10 +673,11 @@ const LectureList = ({ savedLectures, onDeleteLecture, onSaveLecture }) => {
                             if (el) {
                               audioRefs.current[lecture.id] = el;
                               
-                              // Format audio URL properly
+                              // Format audio URL properly - use Vercel proxy for HTTPS
                               let audioUrl = lecture.audioUrl;
                               if (audioUrl && !audioUrl.startsWith('http')) {
-                                audioUrl = `http://3.27.83.67:5000${audioUrl}`;
+                                // Use relative path for Vercel proxy (HTTPS compatible)
+                                audioUrl = audioUrl.startsWith('/') ? audioUrl : `/${audioUrl}`;
                                 el.src = audioUrl;
                               } else {
                                 el.src = audioUrl;
